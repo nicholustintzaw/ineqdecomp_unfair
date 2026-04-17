@@ -52,33 +52,27 @@ $$CI = \frac{2}{\mu} \cdot \text{Cov}(y, R)$$
 
 ### 2. Decomposition Structure
 
-Each unfair factor contributes:
+The contribution of each unfair factor to the overall inequality is defined as:
 
-[
-Contribution_k = Elasticity_k \times CI_k
-]
+$$Contribution_k = \text{Elasticity}_k \times CI_k$$
 
-and:
+The total Concentration Index ($CI_y$) is decomposed as the sum of these contributions plus a residual term:
 
-[
-CI_y = \sum_k Contribution_k + Residual
-]
+$$CI_y = \sum_k Contribution_k + \text{Residual}$$
 
 ---
 
 ### 3. Elasticity (Hybrid WB Approach)
 
-Elasticity is computed as:
+Elasticity for each factor $k$ is computed as:
 
-[
-Elasticity_k = \frac{AME_k \cdot \bar{x}_k}{\bar{y}}
-]
+$$\text{Elasticity}_k = \frac{AME_k \cdot \bar{x}_k}{\bar{y}}$$
 
-where:
+**Where:**
 
-* ( AME_k ) = average marginal effect from `svy: probit + margins`
-* ( \bar{x}_k ) = weighted mean of factor
-* ( \bar{y} ) = weighted mean of outcome
+* $AME_k$ = Average Marginal Effect (derived from `svy: probit` followed by `margins`)
+* $\bar{x}_k$ = Weighted mean of the factor $k$
+* $\bar{y}$ = Weighted mean of the outcome $y$
 
 This follows the **World Bank-style denominator** while using nonlinear marginal effects.
 
