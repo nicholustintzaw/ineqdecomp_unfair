@@ -40,9 +40,9 @@ The function is designed to:
 
 The decomposition is based on the standard concentration index:
 
-[
+```
 CI = \frac{2}{\mu} \cdot \text{Cov}(y, R)
-]
+```
 
 where:
 
