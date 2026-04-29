@@ -2,85 +2,121 @@ capture program drop ineqdecomp_unfair
 program define ineqdecomp_unfair, rclass
     version 17.0
 
-    /******************************************************************
-    ineqdecomp_unfair
-    -------------------------------------------------------------------
-    Purpose
-      Decompose inequality in a binary outcome using unfair factors.
+	/******************************************************************
+	ineqdecomp_unfair
+	-------------------------------------------------------------------
+	Purpose
+	  Decompose inequality in a binary outcome using unfair factors
+	  within a concentration index (CI) framework.
 
-    Core design
-      1. Detect omitted / non-estimable unfair variables
-      2. Build one fixed common analytic sample
-      3. Build unfairness rank from survey-weighted predicted risk
-      4. Estimate AMEs from survey-weighted probit + margins
-      5. Compute elasticity using observed mean outcome (WB-style)
-      6. Compute factor CI using selected CI type:
-           - relative   (default)
-           - wagstaff
-           - erreygers
-      7. Compute signed contributions
-      8. Report:
-           - signed contribution
-           - absolute percentage contribution
-           - normalized absolute percentage contribution
-      9. Report omitted variables separately
+	Core design
+	  1. Detect omitted / non-estimable unfair variables
+	  2. Build one fixed common analytic sample
+	  3. Construct unfairness rank from predicted risk and convert to
+		 weighted fractional rank (conindex-consistent)
+	  4. Estimate AMEs from survey-weighted probit + margins
+	  5. Compute elasticity using observed mean outcome (WB-style)
+	  6. Compute factor CI using weighted summation formula:
+		   - relative CI (default, used for decomposition)
+		   - wagstaff (sensitivity only)
+		   - erreygers (sensitivity only)
+	  7. Compute signed contributions
+	  8. Report:
+		   - signed contribution
+		   - absolute percentage contribution
+		   - normalized absolute percentage contribution
+	  9. Report omitted variables separately
 
-    Methodological rationale
-      This program implements a hybrid workflow based on the decisions
-      made during method development:
+	Methodological rationale
+	  This program implements a hybrid workflow based on the decisions
+	  made during method development:
 
-      (a) Ranking variable:
-          The inequality ranking variable is created from the predicted
-          probability of the outcome using unfair factors only.
-          This makes the rank a multivariate unfairness score rather
-          than a simple SES or wealth rank.
+	  (a) Ranking variable:
+		  The inequality ranking variable is created from the predicted
+		  probability of the outcome using unfair factors, and then
+		  converted into a weighted fractional rank:
 
-      (b) Elasticity:
-          Elasticities are computed using average marginal effects (AMEs)
-          from survey-weighted probit + margins, and then scaled using
-          the observed weighted mean of the outcome:
-              elasticity_x = (AME_x * mean(x)) / mean(y)
-          This follows the World Bank-style denominator logic more
-          closely than using a standardized predicted outcome mean.
+			  R_i = (cum_weight_i − 0.5 × w_i) / total_weight
 
-      (c) Contributions:
-          Signed contributions are retained for the decomposition
-          identity:
-              CI_y = sum(contribution_x) + residual
-          For reporting only, absolute contributions are converted into
-          absolute percentage shares and normalized to sum to 100,
-          following a VERSE-style presentation logic.
+		  This ensures consistency with standard CI estimation and
+		  comparability with conindex results. The rank therefore
+		  represents a multivariate unfairness ordering.
 
-      (d) Common analytic sample:
-          A single fixed analytic sample is created and then used for
-          every decomposition component:
-              - rank model
-              - probit + margins model
-              - outcome mean
-              - unfair-factor means
-              - outcome CI
-              - unfair-factor CI
-          This avoids mixing a full-sample outcome CI with decomposition
-          parameters estimated on a smaller model sample.
+	  (b) Elasticity:
+		  Elasticities are computed using average marginal effects (AMEs)
+		  from survey-weighted probit + margins, and then scaled using
+		  the observed weighted mean of the outcome:
 
-    Important assumptions
-      - The data must already be svyset before running this program.
-      - unfair() should contain analysis-ready numeric variables.
-      - Do not use factor-variable notation such as i.var in unfair().
-      - For binary outcomes, relative CI is the default and most
-        defensible decomposition scale.
-      - Wagstaff and Erreygers options are provided as bounded-index
-        extensions for sensitivity analysis.
-      - The common analytic sample is defined after omission checks
-        using outcome, retained unfair variables, and the supplied
-        weight variables.
+			  elasticity_x = (AME_x * mean(x)) / mean(y)
 
-    Output
-      The resulting dataset is left in memory only if clear is specified.
-      Otherwise, the original dataset is restored after returning scalars
-      and macros in r().
+		  This follows the World Bank decomposition logic adapted to
+		  nonlinear models.
 
-    ******************************************************************/
+	  (c) Contributions:
+		  Signed contributions are retained for the decomposition identity:
+
+			  CI_y = sum(contribution_x) + residual
+
+		  where:
+
+			  contribution_x = elasticity_x × CI_x
+
+		  For reporting only, absolute contributions are converted into
+		  percentage shares and normalized to sum to 100, following a
+		  VERSE-style presentation.
+
+	  (d) CI calculation:
+		  The concentration index is computed using a weighted summation
+		  formula consistent with conindex:
+
+			  CI = (2 / mean(y)) × Σ [w_i × y_i × (R_i − 0.5)]
+
+		  This avoids covariance-based shortcuts and ensures consistency
+		  under weighted data and fractional ranking.
+
+	  (e) Common analytic sample:
+		  A single fixed analytic sample is created and then used for
+		  every decomposition component:
+			  - rank model
+			  - probit + margins model
+			  - outcome mean
+			  - unfair-factor means
+			  - outcome CI
+			  - unfair-factor CI
+
+		  This avoids mixing different estimation samples and ensures
+		  internal consistency.
+
+	  (f) CI type and interpretation:
+		  The standard (relative) CI is used for decomposition because
+		  the additive identity holds under this formulation.
+
+		  Wagstaff and Erreygers corrections are included as optional
+		  sensitivity analyses:
+
+			  CI_w = CI / (1 − μ)
+			  CI_e = 4μ × CI
+
+		  However, these transformations rescale the index and break the
+		  additive decomposition identity, often leading to inflated
+		  residual terms. They should therefore not be used for the main
+		  decomposition results.
+
+	Important assumptions
+	  - The data must already be svyset before running the program.
+	  - unfair() should contain analysis-ready numeric variables.
+	  - Do not use factor-variable notation such as i.var in unfair().
+	  - Relative CI is the appropriate scale for decomposition.
+	  - Wagstaff and Erreygers are provided for sensitivity checks only.
+	  - The analytic sample is defined after omission checks using
+		outcome, retained unfair variables, and the weight variable.
+
+	Output
+	  The resulting dataset is left in memory only if clear is specified.
+	  Otherwise, the original dataset is restored after returning scalars
+	  and macros in r().
+
+	******************************************************************/
 
 	syntax , ///
 		OUTcome(varname numeric) ///
