@@ -111,7 +111,8 @@ program define ineqdecomp_unfair, rclass
 
     marksample touse, strok
 
-    tempvar analytic rank esample_rank esample_probit
+    tempvar analytic rankscore rank esample_rank esample_probit ///
+			wnorm cumw wtmp obsid rcenter prod
     tempfile resultsfile finalout
 
     *---------------------------------------------------------------*
@@ -172,27 +173,56 @@ program define ineqdecomp_unfair, rclass
         exit 498
     }
 
-    *---------------------------------------------------------------*
-    * 3. Build unfairness rank from survey-weighted predicted risk
-    *    The rank model is estimated on the common analytic sample.
-    *---------------------------------------------------------------*
-    if "`rankmodel'" == "logit" {
-        quietly svy if `analytic': logit `outcome' `X_keep'
-        gen byte `esample_rank' = e(sample)
-        quietly predict double `rank' if e(sample), pr
-    }
-    else {
-        quietly svy if `analytic': probit `outcome' `X_keep'
-        gen byte `esample_rank' = e(sample)
-        quietly predict double `rank' if e(sample), pr
-    }
+	*---------------------------------------------------------------*
+	* 3. Build unfairness rank from survey-weighted predicted risk
+	*    The model predicts the unfairness score. This score is then
+	*    converted into a weighted fractional rank, following the
+	*    concentration-index logic used by conindex.
+	*
+	*    Important:
+	*      - rankscore = predicted probability from unfair factors
+	*      - rank      = weighted fractional rank of rankscore
+	*---------------------------------------------------------------*
+	gen long `obsid' = _n
 
-    * Defensive check: rank-model estimation sample should match analytic
-    quietly count if `analytic' & `esample_rank' != 1
-    if r(N) > 0 {
-        di as error "Rank model estimation sample does not fully match the common analytic sample."
-        exit 498
-    }
+	if "`rankmodel'" == "logit" {
+		quietly svy if `analytic': logit `outcome' `X_keep'
+		gen byte `esample_rank' = e(sample)
+		quietly predict double `rankscore' if e(sample), pr
+	}
+	else {
+		quietly svy if `analytic': probit `outcome' `X_keep'
+		gen byte `esample_rank' = e(sample)
+		quietly predict double `rankscore' if e(sample), pr
+	}
+
+	* Defensive check: rank-model estimation sample should match analytic
+	quietly count if `analytic' & `esample_rank' != 1
+	if r(N) > 0 {
+		di as error "Rank model estimation sample does not fully match the common analytic sample."
+		exit 498
+	}
+
+	* Weighted fractional rank, conindex-style
+	quietly summarize `wvar' if `analytic', meanonly
+	scalar total_w = r(sum)
+
+	if total_w <= 0 | missing(total_w) {
+		di as error "Total analytic sample weight is zero or missing."
+		exit 498
+	}
+
+	gen double `wtmp' = cond(`analytic', `wvar', 0)
+
+	sort `rankscore' `obsid'
+	gen double `cumw' = sum(`wtmp')
+
+	gen double `rank' = (`cumw' - 0.5*`wvar') / total_w if `analytic'
+
+	sort `obsid'
+
+	gen double `wnorm' = `wvar' / total_w if `analytic'
+	gen double `rcenter' = `rank' - 0.5 if `analytic'
 
     *---------------------------------------------------------------*
     * 4. Final survey-weighted probit for AMEs via margins
@@ -233,9 +263,10 @@ program define ineqdecomp_unfair, rclass
         exit 498
     }
 
-    quietly corr `rank' `outcome' if `analytic' [aw=`wvar'], c
-    scalar cov_y = r(cov_12)
-    scalar CI_rel_y = 2 * cov_y / mu_y
+	gen double `prod' = `wnorm' * `outcome' * `rcenter' if `analytic'
+	quietly summarize `prod' if `analytic', meanonly
+	scalar CI_rel_y = 2 * r(sum) / mu_y
+	drop `prod'
 
     if "`citype'" == "relative" {
         scalar CI_y = CI_rel_y
@@ -314,9 +345,11 @@ program define ineqdecomp_unfair, rclass
             scalar elas_x = (ame_x * mu_x) / mu_y
 
             * Relative CI of unfair factor
-            quietly corr `rank' `x' if `analytic' [aw=`wvar'], c
-            scalar cov_x = r(cov_12)
-            scalar CI_rel_x = 2 * cov_x / mu_x
+            tempvar prodx
+			gen double `prodx' = `wnorm' * `x' * `rcenter' if `analytic'
+			quietly summarize `prodx' if `analytic', meanonly
+			scalar CI_rel_x = 2 * r(sum) / mu_x
+			drop `prodx'
 
             * Apply selected CI correction to unfair factor
             if "`citype'" == "relative" {
